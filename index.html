@@ -426,7 +426,7 @@ training &lt;- training[inTrain,]</code></pre>
 pred_tree &lt;- predict(mod_tree, newdata = testing)
 confusionMatrix(pred_tree, testing$classe)$overall[1]</code></pre>
 <pre><code>##  Accuracy 
-## 0.4966865</code></pre>
+## 0.4943076</code></pre>
 <p>To improve this, we use a bagging approach on our prediction tree model.</p>
 <pre class="r"><code># save predictors and outcome separately
 predictors &lt;- training[, c(1:length(training)-1)]
@@ -439,7 +439,7 @@ mod_tree_bag &lt;- bag(predictors, outcome, B = 10,
 <pre class="r"><code>pred_tree_bag &lt;- predict(mod_tree_bag, newdata = testing)
 confusionMatrix(pred_tree_bag, testing$classe)$overall[1]</code></pre>
 <pre><code>##  Accuracy 
-## 0.9558199</code></pre>
+## 0.9624469</code></pre>
 <p>Training over 10 bootstrap samples results in a significant improvement of our accuracy, which is now 0.95. This seems like a good value, so we decide to use the bagged decision tree model to predict the data of the validation set. Note, that we have to convert some columns of the validation set to the same data type as in the test set first.</p>
 <pre class="r"><code># class of columns differ between training and validation. 
 # Lets fix this
@@ -462,7 +462,7 @@ validation$magnet_forearm_z &lt;- as.numeric(validation$magnet_forearm_z)
 
 pred_tree_bag_validation &lt;- predict(mod_tree_bag, newdata = validation)
 pred_tree_bag_validation</code></pre>
-<pre><code>##  [1] B A B A A C D B A A B C B A E E A B B B
+<pre><code>##  [1] B A B A A E D B A A B C B A E E A B B B
 ## Levels: A B C D E</code></pre>
 <p>Another approach is the Support Vector Machine method which is implemented in the e1071 package. As this method is a bit more complex the computation time is quite higher.</p>
 <pre class="r"><code># try support vector machine
@@ -474,7 +474,7 @@ library(e1071)</code></pre>
 pred_svm &lt;- predict(mod_svm, newdata = testing)
 confusionMatrix(pred_svm, testing$classe)$overall[1]</code></pre>
 <pre><code>##  Accuracy 
-## 0.9403568</code></pre>
+## 0.9425658</code></pre>
 <p>Nonetheless, we obtain an accuracy of 0.93 on the test data.</p>
 <pre class="r"><code># use svm model for validation set
 pred_svm_validation &lt;- predict(mod_svm, newdata = validation)
@@ -490,14 +490,14 @@ pred_svm_validation</code></pre>
 ##                   B 0 8 0 0 0
 ##                   C 0 0 1 0 0
 ##                   D 0 0 0 1 0
-##                   E 0 0 1 0 2</code></pre>
+##                   E 0 0 0 0 3</code></pre>
 <p>As the table shows, both models predict similar classifications for the validation set.</p>
 </div>
 <div id="results" class="section level2">
 <h2>Results</h2>
 <p>We choose the bagged decision tree model to classifiy our validation. Again, here are the results:</p>
 <pre class="r"><code>pred_tree_bag_validation</code></pre>
-<pre><code>##  [1] B A B A A C D B A A B C B A E E A B B B
+<pre><code>##  [1] B A B A A E D B A A B C B A E E A B B B
 ## Levels: A B C D E</code></pre>
 </div>
 
