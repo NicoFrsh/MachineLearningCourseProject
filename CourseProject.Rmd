@@ -1,0 +1,173 @@
+---
+title: "Classifying Exercise Quality using the Weight Lifting Exercise Dataset"
+author: "Nico Frisch"
+date: "30 7 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+## Feature Selection
+
+```{r, echo=FALSE}
+library(caret)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+url1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(url1)
+validation <- read.csv(url2)
+```
+
+The raw data contains 160 variables, so we need to filter out the insignificant ones to minimize the complexity of our model building process. The first seven rows (name, times, windows etc.) can be omitted as they are not related to the outcome. 
+
+```{r, echo=FALSE}
+#### Feature selection
+# erase first 7 columns as these variables (name, time, window etc.)
+# are not relevant for our prediction
+training <- subset(training, select = -c(1:7))
+validation <- subset(validation, select = -c(1:7))
+```
+
+Next, we use the nearZeroVar function to find columns that have a variance of almost zero and thus can be considered as not important. After that, there are still 93 predictors left, which is still way too much.
+
+```{r}
+# search for near zero variance variables and omit them
+nzv <- nearZeroVar(training, saveMetrics = TRUE, names = TRUE)
+nzvIndex <- which(nzv$nzv == TRUE)
+training <- subset(training, select = -nzvIndex)
+validation <- subset(validation, select = -nzvIndex)
+```
+
+As there are a lot of columns with tons of NA values, we want to omit those as well. In fact, there are only columns with either 0 NAs or columns with exactly 19216 Nas. So, it makes sense to omit all columns that have 19216 Nas. We have now reduced the number of predictors to 52.
+
+```{r}
+# now remove variables with too many nas
+colNA <- colSums(is.na(training))
+unique(colNA)
+# as we can see, there are only columns with either
+# 0 NA values or 19216 Nas.
+# Lets remove those with the NAs
+training <- training[,  colNA == 0]
+validation <- validation[, colNA == 0]
+```
+
+Our next step is to check the correlations between the variables. We compute the correlation matrix using the cor function and then apply the findCorrelation function of the caret package to filter out those columns that are highly correlated with other predictors. This results in a data frame with only 39 covariates left, which is enough to finally start fitting an adecuate classification model.
+
+```{r}
+# now lets take a look at the correlation between the remaining variables
+cor_mat <- cor(subset(training, select = -c(classe)))
+# too many variables, lets try the findCorrelation function from the caret package
+colCor <- findCorrelation(cor_mat, cutoff = 0.8)
+
+# remove those columns from data set
+training <- training[, -colCor]
+validation <- validation[, -colCor]
+```
+
+## Fitting the Model
+
+As the original test set does not contain the "classe" column to verify our predictions we need to split the original training set into a new training and a test set and use the original test set as our validation set. 
+
+```{r}
+# Split training set into training and test set. 
+# The original test set will be our validation set.
+inTrain <- createDataPartition(training$classe, p = 0.7, list = FALSE)
+testing <- training[-inTrain,]
+training <- training[inTrain,]
+```
+
+Now, we can choose a classification method to fit our data. We start with the Linear Discriminant Analysis method. However, this model results being a poor model fit with only about 0.64 accuracy on the test set. We decide not to choose this model.
+
+Next, we use prediction trees to classify our data. Again, the accuracy is very low at approximately 0.5 on the test set. 
+
+```{r}
+mod_tree <- train(classe ~ ., method = "rpart", data = training)
+pred_tree <- predict(mod_tree, newdata = testing)
+confusionMatrix(pred_tree, testing$classe)$overall[1]
+```
+
+To improve this, we use a bagging approach on our prediction tree model. 
+
+```{r}
+# save predictors and outcome separately
+predictors <- training[, c(1:length(training)-1)]
+outcome <- training$classe
+mod_tree_bag <- bag(predictors, outcome, B = 10,
+                    bagControl = bagControl(fit = ctreeBag$fit,
+                                            predict = ctreeBag$pred,
+                                            aggregate = ctreeBag$aggregate))
+
+pred_tree_bag <- predict(mod_tree_bag, newdata = testing)
+confusionMatrix(pred_tree_bag, testing$classe)$overall[1]
+```
+
+Training over 10 bootstrap samples results in a significant improvement of our accuracy, which is now 0.95. This seems like a good value, so we decide to use the bagged decision tree model to predict the data of the validation set. Note, that we have to convert some columns of the validation set to the same data type as in the test set first.
+
+```{r}
+# class of columns differ between training and validation. 
+# Lets fix this
+classes_val <- sapply(validation, class)
+classes_train <- sapply(training, class)
+
+# find columns that have different types
+result <- data.frame(classes_val, classes_train, stringsAsFactors = FALSE)
+result[!(result$classes_val == result$classes_train), ]
+
+# change magnet_dumbbell_z, magnet_forearm_y and magnet_forearm_z
+# to numeric type in validation set
+validation$magnet_dumbbell_z <- as.numeric(validation$magnet_dumbbell_z)
+validation$magnet_forearm_y <- as.numeric(validation$magnet_forearm_y)
+validation$magnet_forearm_z <- as.numeric(validation$magnet_forearm_z)
+
+pred_tree_bag_validation <- predict(mod_tree_bag, newdata = validation)
+pred_tree_bag_validation
+```
+
+Another approach is the Support Vector Machine method which is implemented in the e1071 package. As this method is a bit more complex the computation time is quite higher.
+
+```{r}
+# try support vector machine
+library(e1071)
+mod_svm <- svm(classe ~ ., data = training)
+#mod_svm
+# check accuracy on test set
+pred_svm <- predict(mod_svm, newdata = testing)
+confusionMatrix(pred_svm, testing$classe)$overall[1]
+```
+
+Nonetheless, we obtain an accuracy of 0.93 on the test data. 
+
+```{r}
+# use svm model for validation set
+pred_svm_validation <- predict(mod_svm, newdata = validation)
+pred_svm_validation
+```
+
+Let us now compare the predictions on the validation data between the bagged prediction tree model and the SVM model. Here is the resulting table:
+
+```{r}
+table(pred_svm_validation, pred_tree_bag_validation)
+```
+
+As the table shows, both models predict similar classifications for the validation set. 
+
+## Results
+
+We choose the bagged decision tree model to classifiy our validation. Again, here are the results:
+
+```{r}
+pred_tree_bag_validation
+```
